@@ -344,10 +344,6 @@ def train():
 
     for i in tqdm(range(start, N_iters)):
         chain_bwd = 1 - chain_bwd
-        time0 = time.time()
-        # print('expname ', expname, ' chain_bwd ', chain_bwd,
-        #     ' lindisp ', args.lindisp, ' decay_iteration ', decay_iteration)
-        # print('Random FROM SINGLE IMAGE')
         # Random from one image
         img_i = np.random.choice(i_train)
 
@@ -358,70 +354,6 @@ def train():
         pose = poses[img_i, :3,:4]
         depth_gt = depths[img_i].cuda()
         hard_coords = torch.Tensor(motion_coords[img_i]).cuda()
-        mask_gt = masks[img_i].cuda()
-
-        if img_i == 0:
-            flow_fwd, fwd_mask = read_optical_flow(args.datadir, img_i, 
-                                                args.start_frame, fwd=True)
-            flow_bwd, bwd_mask = np.zeros_like(flow_fwd), np.zeros_like(fwd_mask)
-        elif img_i == num_img - 1:
-            flow_bwd, bwd_mask = read_optical_flow(args.datadir, img_i, 
-                                                args.start_frame, fwd=False)
-            flow_fwd, fwd_mask = np.zeros_like(flow_bwd), np.zeros_like(bwd_mask)
-        else:
-            flow_fwd, fwd_mask = read_optical_flow(args.datadir, 
-                                                img_i, args.start_frame, 
-                                                fwd=True)
-            flow_bwd, bwd_mask = read_optical_flow(args.datadir, 
-                                                img_i, args.start_frame, 
-                                                fwd=False)
-
-        # # ======================== TEST 
-        TEST = False
-        if TEST:
-            import matplotlib
-            matplotlib.use('Agg')
-            import matplotlib.pyplot as plt
-
-            print('CHECK DEPTH and FLOW and exiting')
-            print(images[img_i].shape)
-            print(flow_fwd.shape, img_i)
-
-            warped_im2 = warp_flow(images[img_i + 1].cpu().numpy(), flow_fwd)
-            warped_im0 = warp_flow(images[img_i - 1].cpu().numpy(), flow_bwd)
-            mask_gt = masks[img_i].cpu().numpy()
-
-            plt.figure(figsize=(12, 6))
-
-            plt.subplot(2, 3, 1)
-            plt.imshow(target.cpu().numpy())
-            plt.subplot(2, 3, 4)
-            plt.imshow(depth_gt.cpu().numpy(), cmap='jet') 
-
-            plt.subplot(2, 3, 2)
-            plt.imshow(flow_to_image(flow_fwd)/255. * fwd_mask[..., np.newaxis])
-
-            plt.subplot(2, 3, 3)
-            plt.imshow(flow_to_image(flow_bwd)/255. * bwd_mask[..., np.newaxis])
-
-            plt.subplot(2, 3, 5)
-            plt.imshow(mask_gt, cmap='gray')
-
-            cv2.imwrite('im_%d.jpg'%(img_i),
-                        np.uint8(np.clip(target.cpu().numpy()[:, :, ::-1], 0, 1) * 255))
-            cv2.imwrite('im_%d_warp.jpg'%(img_i + 1), 
-                        np.uint8(np.clip(warped_im2[:, :, ::-1], 0, 1) * 255))
-            cv2.imwrite('im_%d_warp.jpg'%(img_i - 1), 
-                        np.uint8(np.clip(warped_im0[:, :, ::-1], 0, 1) * 255))
-            plt.savefig('depth_flow_%d.jpg'%img_i)
-            sys.exit()
-
-        #  END OF TEST
-        flow_fwd = torch.Tensor(flow_fwd).cuda()
-        fwd_mask = torch.Tensor(fwd_mask).cuda()
-    
-        flow_bwd = torch.Tensor(flow_bwd).cuda()
-        bwd_mask = torch.Tensor(bwd_mask).cuda()
 
         if N_rand is not None:
             rays_o, rays_d = get_rays(H, W, focal, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
@@ -461,18 +393,8 @@ def train():
                                 select_coords[:, 1]]  # (N_rand, 3)
             target_depth = depth_gt[select_coords[:, 0], 
                                 select_coords[:, 1]]
-            target_mask = mask_gt[select_coords[:, 0], 
-                                select_coords[:, 1]].unsqueeze(-1)
 
-            target_of_fwd = flow_fwd[select_coords[:, 0], 
-                                     select_coords[:, 1]]
-            target_fwd_mask = fwd_mask[select_coords[:, 0], 
-                                     select_coords[:, 1]].unsqueeze(-1)#.repeat(1, 2)
-
-            target_of_bwd = flow_bwd[select_coords[:, 0], 
-                                     select_coords[:, 1]]
-            target_bwd_mask = bwd_mask[select_coords[:, 0], 
-                                     select_coords[:, 1]].unsqueeze(-1)#.repeat(1, 2)
+            #TODO: this is where i should load in the ground truth scene flow vectors
 
         img_idx_embed = img_i/num_img * 2. - 1.0
 
@@ -482,30 +404,18 @@ def train():
         else:
             chain_5frames = True
 
-        # print('chain_5frames ', chain_5frames)
-        # print('use_rgb_w ', args.use_rgb_w, ' w_prob_reg', args.w_prob_reg)
-
         ret = render(img_idx_embed, chain_bwd, chain_5frames,
                      num_img, H, W, focal, 
                      chunk=args.chunk, rays=batch_rays,
                      verbose=i < 10, retraw=True,
                      **render_kwargs_train)
 
-        pose_post = poses[min(img_i + 1, int(num_img) - 1), :3,:4]
-        pose_prev = poses[max(img_i - 1, 0), :3,:4]
-
-        render_of_fwd, render_of_bwd = compute_optical_flow(pose_post, 
-                                                            pose, pose_prev, 
-                                                            H, W, focal, 
-                                                            ret)
-
         optimizer.zero_grad()
 
         weight_map_post = ret['prob_map_post']
         weight_map_prev = ret['prob_map_prev']
 
-        weight_post = 1. - ret['raw_prob_ref2post']
-        weight_prev = 1. - ret['raw_prob_ref2prev']
+        #disoclusion weight loss
         prob_reg_loss = args.w_prob_reg * (torch.mean(torch.abs(ret['raw_prob_ref2prev'])) \
                                 + torch.mean(torch.abs(ret['raw_prob_ref2post'])))
 
@@ -522,17 +432,6 @@ def train():
         render_loss += img2mse(ret['rgb_map_ref'][:N_rand, ...], 
                             target_rgb[:N_rand, ...])
 
-        sf_cycle_loss = args.w_cycle * compute_mae(ret['raw_sf_ref2post'], 
-                                                -ret['raw_sf_post2ref'], 
-                                                weight_post.unsqueeze(-1), dim=3) 
-        sf_cycle_loss += args.w_cycle * compute_mae(ret['raw_sf_ref2prev'], 
-                                                -ret['raw_sf_prev2ref'], 
-                                                weight_prev.unsqueeze(-1), dim=3)
-        
-        # regularization loss
-        sf_reg_loss = args.w_sf_reg * (torch.mean(torch.abs(ret['raw_sf_ref2prev'])) \
-                                    + torch.mean(torch.abs(ret['raw_sf_ref2post']))) 
-
         divsor = i // (decay_iteration * 1000)
 
         decay_rate = 10
@@ -542,70 +441,10 @@ def train():
         else:
             w_depth = args.w_depth
 
-        if args.decay_optical_flow_w:
-            w_of = args.w_optical_flow/(decay_rate ** divsor)
-        else:
-            w_of = args.w_optical_flow
-
+        #depth loss
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
-        # print('w_depth ', w_depth, 'w_of ', w_of)
-
-        if img_i == 0:
-            # print('only fwd flow')
-            flow_loss = w_of * compute_mae(render_of_fwd, 
-                                        target_of_fwd, 
-                                        target_fwd_mask)#torch.sum(torch.abs(render_of_fwd - target_of_fwd) * target_fwd_mask)/(torch.sum(target_fwd_mask) + 1e-8)
-        elif img_i == num_img - 1:
-            # print('only bwd flow')
-            flow_loss = w_of * compute_mae(render_of_bwd, 
-                                        target_of_bwd, 
-                                        target_bwd_mask)#torch.sum(torch.abs(render_of_bwd - target_of_bwd) * target_bwd_mask)/(torch.sum(target_bwd_mask) + 1e-8)
-        else:
-            flow_loss = w_of * compute_mae(render_of_fwd, 
-                                        target_of_fwd, 
-                                        target_fwd_mask)#torch.sum(torch.abs(render_of_fwd - target_of_fwd) * target_fwd_mask)/(torch.sum(target_fwd_mask) + 1e-8)
-            flow_loss += w_of * compute_mae(render_of_bwd, 
-                                        target_of_bwd, 
-                                        target_bwd_mask)#torch.sum(torch.abs(render_of_bwd - target_of_bwd) * target_bwd_mask)/(torch.sum(target_bwd_mask) + 1e-8)
-
-        # scene flow smoothness loss
-        sf_sm_loss = args.w_sm * (compute_sf_sm_loss(ret['raw_pts_ref'], 
-                                                    ret['raw_pts_post'], 
-                                                    H, W, focal) \
-                                + compute_sf_sm_loss(ret['raw_pts_ref'], 
-                                                    ret['raw_pts_prev'], 
-                                                    H, W, focal))
-
-        # scene flow least kinectic loss
-        sf_sm_loss += args.w_sm * compute_sf_lke_loss(ret['raw_pts_ref'], 
-                                                    ret['raw_pts_post'], 
-                                                    ret['raw_pts_prev'], 
-                                                    H, W, focal)
-        sf_sm_loss += args.w_sm * compute_sf_lke_loss(ret['raw_pts_ref'], 
-                                                    ret['raw_pts_post'], 
-                                                    ret['raw_pts_prev'], 
-                                                    H, W, focal)
-
-        # ======================================  two-frames chain loss
-        if chain_bwd:
-            sf_sm_loss += args.w_sm * compute_sf_sm_loss(ret['raw_pts_prev'], 
-                                                        ret['raw_pts_pp'], 
-                                                        H, W, focal)
-            sf_sm_loss += args.w_sm * compute_sf_lke_loss(ret['raw_pts_prev'], 
-                                                          ret['raw_pts_ref'], 
-                                                          ret['raw_pts_pp'], 
-                                                          H, W, focal)
-
-        else:
-            sf_sm_loss += args.w_sm * compute_sf_sm_loss(ret['raw_pts_post'], 
-                                                        ret['raw_pts_pp'], 
-                                                        H, W, focal)
-
-            sf_sm_loss += args.w_sm * compute_sf_lke_loss(ret['raw_pts_post'], 
-                                                          ret['raw_pts_pp'], 
-                                                          ret['raw_pts_ref'], 
-                                                          H, W, focal)
+        #TODO: this is where i should write scene flow loss
 
         if chain_5frames:
 
@@ -617,20 +456,11 @@ def train():
                                        target_rgb, 
                                        weight_map_pp.unsqueeze(-1))
 
-            sf_reg_loss += args.w_sf_reg * torch.mean(torch.abs(ret['raw_sf_p2pp']))    
-            sf_cycle_loss += args.w_cycle * compute_mae(ret['raw_sf_pp2p'], 
-                                                        -ret['raw_sf_p2pp'], 
-                                                        raw_weight_p2pp.unsqueeze(-1), dim=3) 
+            #TODO: I probably need something here
 
-        loss = sf_reg_loss + sf_cycle_loss + render_loss + flow_loss + sf_sm_loss + prob_reg_loss + depth_loss 
+        #TODO: I need to add the sf loss here
+        loss = render_loss + prob_reg_loss + depth_loss
 
-        # print('render_loss ', render_loss.item(),
-        #     ' bidirection_loss ', sf_cycle_loss.item(),
-        #     ' sf_reg_loss ', sf_reg_loss.item())
-        # print('depth_loss ', depth_loss.item(),
-        #     ' flow_loss ', flow_loss.item(),
-        #     ' sf_sm_loss ', sf_sm_loss.item())
-        # print('prob_reg_loss ', prob_reg_loss.item())
         loss.backward()
         optimizer.step()
 
@@ -643,7 +473,6 @@ def train():
             param_group['lr'] = new_lrate
         ################################
 
-        dt = time.time()-time0
         # print(f"Step: {global_step}, Loss: {loss}, Time: {dt}")
         #####           end            #####
 
@@ -676,14 +505,8 @@ def train():
             
             writer.add_scalar("train/render_loss", render_loss.item(), i)
             writer.add_scalar("train/depth_loss", depth_loss.item(), i)
-            writer.add_scalar("train/flow_loss", flow_loss.item(), i)
             writer.add_scalar("train/prob_reg_loss", prob_reg_loss.item(), i)
-            # writer.add_scalar("train/d_ct_loss", d_ct_loss.item(), i)
-
-            writer.add_scalar("train/sf_reg_loss", sf_reg_loss.item(), i)
-            writer.add_scalar("train/sf_cycle_loss", sf_cycle_loss.item(), i)
-            writer.add_scalar("train/sf_sm_loss", sf_sm_loss.item(), i)
-
+            #TODO: write sf loss to TB
 
         # """
         if i%args.i_img == 0 and i > 0:
@@ -731,11 +554,6 @@ def train():
 
                 pose_post = poses[min(img_i + 1, int(num_img) - 1), :3,:4]
                 pose_prev = poses[max(img_i - 1, 0), :3,:4]
-                render_of_fwd, render_of_bwd = compute_optical_flow(pose_post, pose, pose_prev, 
-                                                                    H, W, focal, ret, n_dim=2)
-
-                render_flow_fwd_rgb = torch.Tensor(flow_to_image(render_of_fwd.cpu().numpy())/255.)#.cuda()
-                render_flow_bwd_rgb = torch.Tensor(flow_to_image(render_of_bwd.cpu().numpy())/255.)#.cuda()
 
                 for key in ret.keys():
                     ret[key] = ret[key].to(torch.device("cpu"))
@@ -750,12 +568,6 @@ def train():
                 writer.add_image("val/monocular_disp", 
                                 torch.clamp(target_depth /percentile(target_depth, 97), 0., 1.), 
                                 global_step=i, dataformats='HW')
-
-                writer.add_image("val/render_flow_fwd_rgb", render_flow_fwd_rgb, 
-                                global_step=i, dataformats='HWC')
-                writer.add_image("val/render_flow_bwd_rgb", render_flow_bwd_rgb, 
-                                global_step=i, dataformats='HWC')
-
 
             ### write video to tensorboard ###
 
