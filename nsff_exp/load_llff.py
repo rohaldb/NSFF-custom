@@ -74,16 +74,36 @@ def _load_data(basedir, start_frame, end_frame,
     if evaluation:
         return poses, bds, imgs,
 
-    disp_dir = os.path.join(basedir, 'disp')  
+    #read in disparity
+    disp_dir = os.path.join(basedir, 'disp_0')
 
     dispfiles = [os.path.join(disp_dir, f) \
                 for f in sorted(os.listdir(disp_dir)) if f.endswith('npy')]
     dispfiles = dispfiles[start_frame:end_frame]
 
-    disp = [cv2.resize(read_MiDaS_disp(f, 3.0), 
+    disp = [cv2.resize(np.load(f),
                     (imgs.shape[1], imgs.shape[0]), 
                     interpolation=cv2.INTER_NEAREST) for f in dispfiles]
-    disp = np.stack(disp, -1)  
+    disp = np.stack(disp, -1)
+
+    #TODO: update bds to be the closest and farthest scene content
+
+    #read in SF
+    sf_dir = os.path.join(basedir, 'sf')
+
+    sffiles = [os.path.join(sf_dir, f) \
+                for f in sorted(os.listdir(sf_dir)) if f.endswith('npy')]
+
+    # becuase we need to compute backward scene flow (negation of foward scene flow of previous timestep)
+    # we can't have the start frame being 0
+    first_frame_found = int(sffiles[0][-9:-4])
+    assert start_frame > first_frame_found
+    sffiles = sffiles[start_frame-1:end_frame]
+
+    sf = [cv2.resize(np.load(f),
+                    (imgs.shape[1], imgs.shape[0]),
+                    interpolation=cv2.INTER_NEAREST) for f in sffiles]
+    sf = np.stack(sf, -1) #cast to shape [w,h,3,num_frames]
 
     mask_dir = os.path.join(basedir, 'motion_masks')
     maskfiles = [os.path.join(mask_dir, f) \
@@ -95,8 +115,6 @@ def _load_data(basedir, start_frame, end_frame,
     masks = np.stack(masks, -1)  
     masks = np.float32(masks > 1e-3)
     
-    # print(masks.shape)
-    # sys.exit()
 
     motion_coords = []
     for i in range(masks.shape[-1]):
@@ -105,16 +123,19 @@ def _load_data(basedir, start_frame, end_frame,
         coord = np.stack((coord_y, coord_x), -1)
         motion_coords.append(coord)
     
-    print(imgs.shape)
-    print(disp.shape)
+    print("imgs.shape:", imgs.shape)
+    print("disp.shape:", disp.shape)
+    print("sf.shape:", sf.shape)
 
     assert(imgs.shape[0] == disp.shape[0])
+    assert(sf.shape[0] == sf.shape[0])
     assert(imgs.shape[0] == masks.shape[0])
 
     assert(imgs.shape[1] == disp.shape[1])
+    assert(sf.shape[1] == sf.shape[1])
     assert(imgs.shape[1] == masks.shape[1])
 
-    return poses, bds, imgs, disp, masks, motion_coords
+    return poses, bds, imgs, disp, masks, motion_coords, sf
 
 
 def normalize(x):
@@ -317,7 +338,7 @@ def load_llff_data(basedir, start_frame, end_frame,
                    spherify=False, path_zflat=False, 
                    final_height=288):
     
-    poses, bds, imgs, disp, masks, motion_coords = _load_data(basedir, 
+    poses, bds, imgs, disp, masks, motion_coords, sf = _load_data(basedir,
                                                               start_frame, end_frame,
                                                               height=final_height,
                                                               evaluation=False)
@@ -332,8 +353,15 @@ def load_llff_data(basedir, start_frame, end_frame,
     images = np.moveaxis(imgs, -1, 0).astype(np.float32)
     bds = np.moveaxis(bds, -1, 0).astype(np.float32)
     disp = np.moveaxis(disp, -1, 0).astype(np.float32)
+    sf = np.moveaxis(sf, -1, 0).astype(np.float32)
     masks = np.moveaxis(masks, -1, 0).astype(np.float32)
-    
+
+    #create forward and backward sf from just forward sf, where backward of t is -1*forward of t-1
+    #sf contains the (start_frame -1)th frame for computing bwd scene flow, so it must be removed
+    sf_fw = sf[1:]
+    #shift along time dimension and remove
+    sf_bw = -1*np.roll(sf, 1, 0)[1:]
+
     # Rescale if bd_factor is provided
     sc = 1. if bd_factor is None else 1./(np.percentile(bds[:, 0], 5) * bd_factor)
     # sc = 1. if bd_factor is None else 1./(bds.min() * bd_factor)
@@ -383,10 +411,12 @@ def load_llff_data(basedir, start_frame, end_frame,
     images = images.astype(np.float32)
     poses = poses.astype(np.float32)
     disp = disp.astype(np.float32)
+    sf_fw = sf_fw.astype(np.float32)
+    sf_bw = sf_bw.astype(np.float32)
     masks = masks.astype(np.float32)
 
     return images, disp, masks, poses, bds,\
-        render_poses, c2w, motion_coords
+        render_poses, c2w, motion_coords, sf_fw, sf_bw
 
 
 import torch

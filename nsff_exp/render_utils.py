@@ -890,8 +890,8 @@ def raw2outputs_blending(raw_dy,
     opacity_rigid = act_fn(raw_rigid[..., 3] + noise)#.detach() #* (1. - raw_blend_w) 
 
     # alpha with blending weights
-    alpha_dy = (1. - torch.exp(-opacity_dy * dists) ) * raw_blend_w
-    alpha_rig = (1. - torch.exp(-opacity_rigid * dists)) * (1. - raw_blend_w)
+    alpha_dy = (1. - torch.exp(-opacity_dy * dists) ) * raw_blend_w # v(t)*σ(t)
+    alpha_rig = (1. - torch.exp(-opacity_rigid * dists)) * (1. - raw_blend_w) # (1-v(t))*σ(t)
 
     Ts = torch.cumprod(torch.cat([torch.ones((alpha_dy.shape[0], 1)), 
                                 (1. - alpha_dy) * (1. - alpha_rig)  + 1e-10], -1), -1)[:, :-1]
@@ -903,7 +903,7 @@ def raw2outputs_blending(raw_dy,
     rgb_map = torch.sum(weights_dy[..., None] * rgb_dy + \
                         weights_rig[..., None] * rgb_rigid, -2) 
 
-    weights_mix = weights_dy + weights_rig
+    weights_mix = weights_dy + weights_rig # T^cb(t)*σ^cb(t)
     depth_map = torch.sum(weights_mix * z_vals, -1)
 
     # compute dynamic depth only

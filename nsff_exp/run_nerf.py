@@ -167,7 +167,7 @@ def train():
     if args.dataset_type == 'llff':
         target_idx = args.target_idx
         images, depths, masks, poses, bds, \
-        render_poses, ref_c2w, motion_coords = load_llff_data(args.datadir, 
+        render_poses, ref_c2w, motion_coords, sf_fw, sf_bw = load_llff_data(args.datadir,
                                                             args.start_frame, args.end_frame,
                                                             args.factor,
                                                             target_idx=target_idx,
@@ -323,8 +323,8 @@ def train():
     # Move training data to GPU
     images = torch.Tensor(images)#.to(device)
     depths = torch.Tensor(depths)#.to(device)
-    masks = 1.0 - torch.Tensor(masks).to(device)
-
+    sf_fw = torch.tensor(sf_fw)
+    sf_bw = torch.tensor(sf_bw)
     poses = torch.Tensor(poses).to(device)
 
     N_iters = 75000#500 * 1000 #1000000
@@ -353,6 +353,9 @@ def train():
         target = images[img_i].cuda()
         pose = poses[img_i, :3,:4]
         depth_gt = depths[img_i].cuda()
+        sf_fw_gt = sf_fw[img_i].cuda()
+        sf_bw_gt = sf_bw[img_i].cuda()
+
         hard_coords = torch.Tensor(motion_coords[img_i]).cuda()
 
         if N_rand is not None:
@@ -393,8 +396,11 @@ def train():
                                 select_coords[:, 1]]  # (N_rand, 3)
             target_depth = depth_gt[select_coords[:, 0], 
                                 select_coords[:, 1]]
-
-            #TODO: this is where i should load in the ground truth scene flow vectors
+            # TODO: this is where i should load in the ground truth scene flow vectors
+            target_sf_fw = sf_fw_gt[select_coords[:, 0],
+                                select_coords[:, 1]]
+            target_sf_bw = sf_bw_gt[select_coords[:, 0],
+                                    select_coords[:, 1]]
 
         img_idx_embed = img_i/num_img * 2. - 1.0
 
@@ -445,6 +451,9 @@ def train():
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
         #TODO: this is where i should write scene flow loss
+        # sf loss
+        w_sf = 1
+        # sf_loww = w_sf * compute_sf_loss(ret['depth_map_ref_dy'], -target_depth)
 
         if chain_5frames:
 
