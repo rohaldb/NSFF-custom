@@ -97,7 +97,8 @@ def _load_data(basedir, start_frame, end_frame,
     # becuase we need to compute backward scene flow (negation of foward scene flow of previous timestep)
     # we can't have the start frame being 0
     first_frame_found = int(sffiles[0][-9:-4])
-    assert start_frame > first_frame_found
+    if start_frame <= first_frame_found:
+        raise ValueError('Due to how the scene flow is calculated, the start frame specified in the config file must not be the first frame')
     sffiles = sffiles[start_frame-1:end_frame]
 
     sf = [cv2.resize(np.load(f),

@@ -396,7 +396,6 @@ def train():
                                 select_coords[:, 1]]  # (N_rand, 3)
             target_depth = depth_gt[select_coords[:, 0], 
                                 select_coords[:, 1]]
-            # TODO: this is where i should load in the ground truth scene flow vectors
             target_sf_fw = sf_fw_gt[select_coords[:, 0],
                                 select_coords[:, 1]]
             target_sf_bw = sf_bw_gt[select_coords[:, 0],
@@ -450,10 +449,9 @@ def train():
         #depth loss
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
-        #TODO: this is where i should write scene flow loss
-        # sf loss
+        #sf loss
         w_sf = 1
-        # sf_loww = w_sf * compute_sf_loss(ret['depth_map_ref_dy'], -target_depth)
+        sf_loss = w_sf * (img2mse(ret['sf_ref2post_map_ref'], target_sf_fw) + img2mse(ret['sf_ref2prev_map_ref'], target_sf_bw))
 
         if chain_5frames:
 
@@ -465,10 +463,8 @@ def train():
                                        target_rgb, 
                                        weight_map_pp.unsqueeze(-1))
 
-            #TODO: I probably need something here
 
-        #TODO: I need to add the sf loss here
-        loss = render_loss + prob_reg_loss + depth_loss
+        loss = render_loss + prob_reg_loss + depth_loss + sf_loss
 
         loss.backward()
         optimizer.step()
@@ -515,7 +511,7 @@ def train():
             writer.add_scalar("train/render_loss", render_loss.item(), i)
             writer.add_scalar("train/depth_loss", depth_loss.item(), i)
             writer.add_scalar("train/prob_reg_loss", prob_reg_loss.item(), i)
-            #TODO: write sf loss to TB
+            writer.add_scalar("train/sf_loss", sf_loss.item(), i)
 
         # """
         if i%args.i_img == 0 and i > 0:

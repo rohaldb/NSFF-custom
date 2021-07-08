@@ -870,6 +870,8 @@ def create_nerf(args):
 
 def raw2outputs_blending(raw_dy, 
                          raw_rigid,
+                         sf_ref2prev_dy,
+                         sf_ref2post_dy,
                          raw_blend_w,
                          z_vals, rays_d, 
                          raw_noise_std):
@@ -890,8 +892,8 @@ def raw2outputs_blending(raw_dy,
     opacity_rigid = act_fn(raw_rigid[..., 3] + noise)#.detach() #* (1. - raw_blend_w) 
 
     # alpha with blending weights
-    alpha_dy = (1. - torch.exp(-opacity_dy * dists) ) * raw_blend_w # v(t)*σ(t)
-    alpha_rig = (1. - torch.exp(-opacity_rigid * dists)) * (1. - raw_blend_w) # (1-v(t))*σ(t)
+    alpha_dy = (1. - torch.exp(-opacity_dy * dists) ) * raw_blend_w
+    alpha_rig = (1. - torch.exp(-opacity_rigid * dists)) * (1. - raw_blend_w)
 
     Ts = torch.cumprod(torch.cat([torch.ones((alpha_dy.shape[0], 1)), 
                                 (1. - alpha_dy) * (1. - alpha_rig)  + 1e-10], -1), -1)[:, :-1]
@@ -903,7 +905,16 @@ def raw2outputs_blending(raw_dy,
     rgb_map = torch.sum(weights_dy[..., None] * rgb_dy + \
                         weights_rig[..., None] * rgb_rigid, -2) 
 
-    weights_mix = weights_dy + weights_rig # T^cb(t)*σ^cb(t)
+    #scene flow
+    #assume sf of static model is 0
+    sf_ref2prev_rig = torch.zeros_like(sf_ref2prev_dy)
+    sf_ref2post_rig = torch.zeros_like(sf_ref2post_dy)
+    sf_ref2prev_map = torch.sum(weights_dy[..., None] * sf_ref2prev_dy +
+                                weights_rig[..., None] * sf_ref2prev_rig, -2)
+    sf_ref2post_map = torch.sum(weights_dy[..., None] * sf_ref2post_dy +
+                                weights_rig[..., None] * sf_ref2post_rig, -2)
+
+    weights_mix = weights_dy + weights_rig
     depth_map = torch.sum(weights_mix * z_vals, -1)
 
     # compute dynamic depth only
@@ -913,7 +924,7 @@ def raw2outputs_blending(raw_dy,
     depth_map_dynamic = torch.sum(weights_dynamic * z_vals, -1)
     rgb_map_dy = torch.sum(weights_dynamic[..., None] * torch.sigmoid(raw_dy[..., :3]), -2) 
 
-    return rgb_map, depth_map, \
+    return rgb_map, depth_map, sf_ref2prev_map, sf_ref2post_map, \
            rgb_map_dy, depth_map_dynamic, weights_dynamic
 
 
@@ -1063,6 +1074,7 @@ def render_rays(img_idx,
     bounds = torch.reshape(ray_batch[...,6:8], [-1,1,2])
     near, far = bounds[...,0], bounds[...,1] # [-1,1]
 
+    #construct the z_values along the ray that represent our sample
     t_vals = torch.linspace(0., 1., steps=N_samples)
     if not lindisp:
         z_vals = near * (1.-t_vals) + far * (t_vals)
@@ -1100,14 +1112,17 @@ def render_rays(img_idx,
     raw_sf_ref2post = raw_ref[:, :, 7:10]
     # raw_blend_w_ref = raw_ref[:, :, 12]
 
-    rgb_map_ref, depth_map_ref, \
+    rgb_map_ref, depth_map_ref, sf_ref2prev_map_ref, sf_ref2post_map_ref, \
     rgb_map_ref_dy, depth_map_ref_dy, weights_ref_dy = raw2outputs_blending(raw_rgba_ref, raw_rgba_rigid,
+                                                                            raw_sf_ref2prev,
+                                                                            raw_sf_ref2post,
                                                                             raw_blend_w,
                                                                             z_vals, rays_d, 
                                                                             raw_noise_std)
 
 
-    ret = {'rgb_map_ref': rgb_map_ref, 'depth_map_ref' : depth_map_ref,  
+    ret = {'rgb_map_ref': rgb_map_ref, 'depth_map_ref' : depth_map_ref,
+            'sf_ref2prev_map_ref': sf_ref2prev_map_ref, 'sf_ref2post_map_ref': sf_ref2post_map_ref,
             'rgb_map_rig':rgb_map_rig, 'depth_map_rig':depth_map_rig, 
             'rgb_map_ref_dy':rgb_map_ref_dy, 'weights_ref_dy':weights_ref_dy, 
             'depth_map_ref_dy':depth_map_ref_dy}
