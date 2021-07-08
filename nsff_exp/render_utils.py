@@ -734,6 +734,7 @@ def render_bullet_time(render_poses, img_idx_embed, num_img,
     os.makedirs(save_img_dir, exist_ok=True)
     # os.makedirs(save_depth_dir, exist_ok=True)
 
+    rendered_images = []
     for i in range(0, (render_poses.shape[0])):
         c2w = render_poses[i]
         print(i, time.time() - t)
@@ -759,9 +760,13 @@ def render_bullet_time(render_poses, img_idx_embed, num_img,
 
             filename = os.path.join(save_img_dir, '{:03d}.jpg'.format(i))
             imageio.imwrite(filename, rgb8)
+            rendered_images.append(rgb8)
 
             # filename = os.path.join(save_depth_dir, '{:03d}.jpg'.format(i))
             # imageio.imwrite(filename, depth8)
+
+    video_path = convert_images_to_video(rendered_images, savedir)
+    return video_path
 
 def create_nerf(args):
     """Instantiate NeRF's MLP model.

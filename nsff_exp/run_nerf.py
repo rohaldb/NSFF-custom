@@ -450,7 +450,7 @@ def train():
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
         #sf loss
-        w_sf = 1
+        w_sf = 0.3
         sf_loss = w_sf * (img2mse(ret['sf_ref2post_map_ref'], target_sf_fw) + img2mse(ret['sf_ref2prev_map_ref'], target_sf_bw))
 
         if chain_5frames:
@@ -574,37 +574,49 @@ def train():
                                 torch.clamp(target_depth /percentile(target_depth, 97), 0., 1.), 
                                 global_step=i, dataformats='HW')
 
-            ### write video to tensorboard ###
+                ### write video to tensorboard ###
 
-            num_img = float(poses.shape[0])
-            ref_c2w = torch.Tensor(ref_c2w).to(device)
-            pose = poses[target_idx, :3, :4]
+                num_img = float(poses.shape[0])
+                ref_c2w = torch.Tensor(ref_c2w).to(device)
+                pose = poses[target_idx, :3, :4]
+                render_poses = torch.Tensor(render_poses).to(device)
 
-            testsavedir = os.path.join(basedir, expname, 'render-lockcam-slowmo')
-            os.makedirs(testsavedir, exist_ok=True)
-
-            with torch.no_grad():
+                testsavedir = os.path.join(basedir, expname, 'render-lockcam-slowmo')
+                os.makedirs(testsavedir, exist_ok=True)
                 video_path = render_lockcam_slowmo(ref_c2w, num_img, hwf,
-                                      args.chunk, render_kwargs_train, render_kwargs_test, pose,
-                                      gt_imgs=images, savedir=testsavedir,
-                                      render_factor=args.render_factor,
-                                      target_idx=target_idx,
-                                      skip_blending=True,
-                                      output_flow=False
-                                      )
+                                                   args.chunk, render_kwargs_train, render_kwargs_test, pose,
+                                                   gt_imgs=images, savedir=testsavedir,
+                                                   render_factor=args.render_factor,
+                                                   target_idx=target_idx,
+                                                   skip_blending=True,
+                                                   output_flow=False
+                                                   )
 
-                video = torchvision.io.read_video(video_path)
-                v = torch.unsqueeze(video[0], 0)  # T, H, W, C
-                # transform to T,C,H,W
-                v = torch.swapaxes(v, 2, 4)
-                v = torch.swapaxes(v, 3, 4)
-                writer.add_video("val/lockcam-slomo", vid_tensor=v, global_step=i, fps=20)
+                write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
+
+                testsavedir = os.path.join(basedir, expname,
+                                           'render-spiral-frame-%03d' % \
+                                           target_idx + '_{}_{:06d}'.format('test' if args.render_test else 'path',
+                                                                            start))
+                os.makedirs(testsavedir, exist_ok=True)
+                video_path = render_bullet_time(render_poses[:10], img_idx_embed, num_img, hwf,
+                                                args.chunk, render_kwargs_test,
+                                                gt_imgs=images, savedir=testsavedir,
+                                                render_factor=args.render_factor)
+
+                write_video_to_tensorboard(video_path, "bullet-time", i, writer)
 
             torch.cuda.empty_cache()
 
         global_step += 1
 
-
+def write_video_to_tensorboard(video_path, tag, global_step, writer):
+    video = torchvision.io.read_video(video_path)
+    v = torch.unsqueeze(video[0], 0)  # T, H, W, C
+    # transform to T,C,H,W
+    v = torch.swapaxes(v, 2, 4)
+    v = torch.swapaxes(v, 3, 4)
+    writer.add_video("val/" + tag, vid_tensor=v, global_step=global_step, fps=20)
 
 if __name__=='__main__':
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
