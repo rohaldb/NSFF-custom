@@ -86,25 +86,29 @@ def _load_data(basedir, start_frame, end_frame,
                     interpolation=cv2.INTER_NEAREST) for f in dispfiles]
     disp = np.stack(disp, -1)
 
-    #TODO: update bds to be the closest and farthest scene content
+    #read in SF fwd
+    sf_fw_dir = os.path.join(basedir, 'sf')
 
-    #read in SF
-    sf_dir = os.path.join(basedir, 'sf')
+    sf_fw_files = [os.path.join(sf_fw_dir, f) \
+                for f in sorted(os.listdir(sf_fw_dir)) if f.endswith('npy')]
+    sf_fw_files = sf_fw_files[start_frame:end_frame]
 
-    sffiles = [os.path.join(sf_dir, f) \
-                for f in sorted(os.listdir(sf_dir)) if f.endswith('npy')]
-
-    # becuase we need to compute backward scene flow (negation of foward scene flow of previous timestep)
-    # we can't have the start frame being 0
-    first_frame_found = int(sffiles[0][-9:-4])
-    if start_frame <= first_frame_found:
-        raise ValueError('Due to how the scene flow is calculated, the start frame specified in the config file must not be the first frame')
-    sffiles = sffiles[start_frame-1:end_frame]
-
-    sf = [cv2.resize(np.load(f),
+    sf_fw = [cv2.resize(np.load(f),
                     (imgs.shape[1], imgs.shape[0]),
-                    interpolation=cv2.INTER_NEAREST) for f in sffiles]
-    sf = np.stack(sf, -1) #cast to shape [w,h,3,num_frames]
+                    interpolation=cv2.INTER_NEAREST) for f in sf_fw_files]
+    sf_fw = np.stack(sf_fw, -1) #cast to shape [w,h,3,num_frames]
+
+    # read in SF bwd
+    sf_bw_dir = os.path.join(basedir, 'sf_bw')
+
+    sf_bw_files = [os.path.join(sf_bw_dir, f) \
+                for f in sorted(os.listdir(sf_bw_dir)) if f.endswith('npy')]
+    sf_bw_files = sf_bw_files[start_frame:end_frame]
+
+    sf_bw = [cv2.resize(np.load(f),
+                    (imgs.shape[1], imgs.shape[0]),
+                    interpolation=cv2.INTER_NEAREST) for f in sf_bw_files]
+    sf_bw = np.stack(sf_bw, -1) #cast to shape [w,h,3,num_frames]
 
     mask_dir = os.path.join(basedir, 'motion_masks')
     maskfiles = [os.path.join(mask_dir, f) \
@@ -126,17 +130,20 @@ def _load_data(basedir, start_frame, end_frame,
     
     print("imgs.shape:", imgs.shape)
     print("disp.shape:", disp.shape)
-    print("sf.shape:", sf.shape)
+    print("sf_fw.shape:", sf_fw.shape)
+    print("sf_bw.shape:", sf_fw.shape)
 
     assert(imgs.shape[0] == disp.shape[0])
-    assert(sf.shape[0] == sf.shape[0])
+    assert(imgs.shape[0] == sf_fw.shape[0])
+    assert (imgs.shape[0] == sf_bw.shape[0])
     assert(imgs.shape[0] == masks.shape[0])
 
     assert(imgs.shape[1] == disp.shape[1])
-    assert(sf.shape[1] == sf.shape[1])
+    assert(imgs.shape[1] == sf_fw.shape[1])
+    assert(imgs.shape[1] == sf_bw.shape[1])
     assert(imgs.shape[1] == masks.shape[1])
 
-    return poses, bds, imgs, disp, masks, motion_coords, sf
+    return poses, bds, imgs, disp, masks, motion_coords, sf_fw, sf_bw
 
 
 def normalize(x):
@@ -339,7 +346,7 @@ def load_llff_data(basedir, start_frame, end_frame,
                    spherify=False, path_zflat=False, 
                    final_height=288):
     
-    poses, bds, imgs, disp, masks, motion_coords, sf = _load_data(basedir,
+    poses, bds, imgs, disp, masks, motion_coords, sf_fw, sf_bw = _load_data(basedir,
                                                               start_frame, end_frame,
                                                               height=final_height,
                                                               evaluation=False)
@@ -354,14 +361,9 @@ def load_llff_data(basedir, start_frame, end_frame,
     images = np.moveaxis(imgs, -1, 0).astype(np.float32)
     bds = np.moveaxis(bds, -1, 0).astype(np.float32)
     disp = np.moveaxis(disp, -1, 0).astype(np.float32)
-    sf = np.moveaxis(sf, -1, 0).astype(np.float32)
+    sf_fw = np.moveaxis(sf_fw, -1, 0).astype(np.float32)
+    sf_bw = np.moveaxis(sf_bw, -1, 0).astype(np.float32)
     masks = np.moveaxis(masks, -1, 0).astype(np.float32)
-
-    #create forward and backward sf from just forward sf, where backward of t is -1*forward of t-1
-    #sf contains the (start_frame -1)th frame for computing bwd scene flow, so it must be removed
-    sf_fw = sf[1:]
-    #shift along time dimension and remove
-    sf_bw = -1*np.roll(sf, 1, 0)[1:]
 
     # Rescale if bd_factor is provided
     sc = 1. if bd_factor is None else 1./(np.percentile(bds[:, 0], 5) * bd_factor)
