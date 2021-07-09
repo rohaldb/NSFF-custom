@@ -327,7 +327,7 @@ def train():
     sf_bw = torch.tensor(sf_bw)
     poses = torch.Tensor(poses).to(device)
 
-    N_iters = 75000#500 * 1000 #1000000
+    N_iters = 10000#500 * 1000 #1000000
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)

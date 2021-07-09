@@ -32,5 +32,5 @@ w_sf_reg = 0.01
 w_cycle = 1.0
 w_prob_reg = 0.1
 
-start_frame = 4
-end_frame = 7
+start_frame = 8
+end_frame = 11
