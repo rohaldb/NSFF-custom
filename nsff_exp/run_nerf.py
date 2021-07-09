@@ -527,29 +527,6 @@ def train():
 
             img_idx_embed = img_i/num_img * 2. - 1.0
 
-            if img_i == 0:
-                flow_fwd, fwd_mask = read_optical_flow(args.datadir, img_i, 
-                                                    args.start_frame, fwd=True)
-                flow_bwd, bwd_mask = np.zeros_like(flow_fwd), np.zeros_like(fwd_mask)
-            elif img_i == num_img - 1:
-                flow_bwd, bwd_mask = read_optical_flow(args.datadir, img_i, 
-                                                    args.start_frame, fwd=False)
-                flow_fwd, fwd_mask = np.zeros_like(flow_bwd), np.zeros_like(bwd_mask)
-            else:
-                flow_fwd, fwd_mask = read_optical_flow(args.datadir, 
-                                                    img_i, args.start_frame, 
-                                                    fwd=True)
-                flow_bwd, bwd_mask = read_optical_flow(args.datadir, 
-                                                    img_i, args.start_frame, 
-                                                    fwd=False)
-
-            flow_fwd_rgb = torch.Tensor(flow_to_image(flow_fwd)/255.)#.cuda()
-            writer.add_image("val/gt_flow_fwd", 
-                            flow_fwd_rgb, global_step=i, dataformats='HWC')
-            flow_bwd_rgb = torch.Tensor(flow_to_image(flow_bwd)/255.)#.cuda()
-            writer.add_image("val/gt_flow_bwd", 
-                            flow_bwd_rgb, global_step=i, dataformats='HWC')
-
             with torch.no_grad():
                 torch.cuda.empty_cache()
                 ret = render(img_idx_embed, chain_bwd, False,
@@ -581,23 +558,22 @@ def train():
                 pose = poses[target_idx, :3, :4]
                 render_poses = torch.Tensor(render_poses).to(device)
 
-                testsavedir = os.path.join(basedir, expname, 'render-lockcam-slowmo')
-                os.makedirs(testsavedir, exist_ok=True)
-                video_path = render_lockcam_slowmo(ref_c2w, num_img, hwf,
-                                                   args.chunk, render_kwargs_train, render_kwargs_test, pose,
-                                                   gt_imgs=images, savedir=testsavedir,
-                                                   render_factor=args.render_factor,
-                                                   target_idx=target_idx,
-                                                   skip_blending=True,
-                                                   output_flow=False
-                                                   )
+                # UNCOMMENT TO RENDER TIME INTERPOLATION DURING TRAINING
 
-                write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
+                # testsavedir = os.path.join(basedir, expname, 'render-lockcam-slowmo')
+                # os.makedirs(testsavedir, exist_ok=True)
+                # video_path = render_lockcam_slowmo(ref_c2w, num_img, hwf,
+                #                                    args.chunk, render_kwargs_train, render_kwargs_test, pose,
+                #                                    gt_imgs=images, savedir=testsavedir,
+                #                                    render_factor=args.render_factor,
+                #                                    target_idx=target_idx,
+                #                                    skip_blending=True,
+                #                                    output_flow=False
+                #                                    )
 
-                testsavedir = os.path.join(basedir, expname,
-                                           'render-spiral-frame-%03d' % \
-                                           target_idx + '_{}_{:06d}'.format('test' if args.render_test else 'path',
-                                                                            start))
+                # write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
+
+                testsavedir = os.path.join(basedir, expname, 'render-spiral-frame')
                 os.makedirs(testsavedir, exist_ok=True)
                 video_path = render_bullet_time(render_poses[:10], img_idx_embed, num_img, hwf,
                                                 args.chunk, render_kwargs_test,
