@@ -96,6 +96,8 @@ def config_parser():
                         help='skips the blending of images when doing fixed lockcam slowmo')
     parser.add_argument("--output_lockcam_flow", action='store_true',
                         help='writes optical flow files to disk during rendering of lockcam slowmo')
+    parser.add_argument("--bt_linear_interpolation", action='store_true',
+                        help='linearly interpolates poses between first and last frame for bullet time poses')
 
     # dataset options
     parser.add_argument("--dataset_type", type=str, default='llff', 
@@ -262,6 +264,9 @@ def train():
 
         num_img = float(poses.shape[0])
         img_idx_embed = target_idx/float(num_img) * 2. - 1.0
+
+        if args.bt_linear_interpolation:
+            render_poses = linearly_interpolate_poses(poses, 10)
 
         testsavedir = os.path.join(basedir, expname, 
                                 'render-spiral-frame-%03d'%\
@@ -574,9 +579,10 @@ def train():
 
                 # write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
 
+                bt_render_poses = linearly_interpolate_poses(poses, 10)
                 testsavedir = os.path.join(basedir, expname, 'render-spiral-frame')
                 os.makedirs(testsavedir, exist_ok=True)
-                video_path = render_bullet_time(render_poses[:10], img_idx_embed, num_img, hwf,
+                video_path = render_bullet_time(bt_render_poses, img_idx_embed, num_img, hwf,
                                                 args.chunk, render_kwargs_test,
                                                 gt_imgs=images, savedir=testsavedir,
                                                 render_factor=args.render_factor)
@@ -587,6 +593,13 @@ def train():
 
         global_step += 1
 
+#linearly interpolated num_frames poses between poses[1] and poses[-1]
+def linearly_interpolate_poses(poses, num_poses):
+    fst = poses[0]
+    lst = poses[-1]
+    render_poses = np.array([((num_poses - t) / (num_poses - 1)) * fst + ((t - 1) / (num_poses - 1)) * lst for t in range(1, num_poses + 1)])
+    return torch.Tensor(render_poses).to(device)
+
 def write_video_to_tensorboard(video_path, tag, global_step, writer):
     video = torchvision.io.read_video(video_path)
     v = torch.unsqueeze(video[0], 0)  # T, H, W, C
@@ -594,7 +607,7 @@ def write_video_to_tensorboard(video_path, tag, global_step, writer):
     v = torch.swapaxes(v, 2, 4)
     v = torch.swapaxes(v, 3, 4)
     writer.add_video("val/" + tag, vid_tensor=v, global_step=global_step, fps=20)
-
+    
 if __name__=='__main__':
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
