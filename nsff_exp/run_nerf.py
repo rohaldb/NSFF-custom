@@ -141,6 +141,8 @@ def config_parser():
                         help='weights of cycle consistency')
     parser.add_argument("--w_prob_reg", type=float, default=0.1, 
                         help='weights of disocculusion weights')
+    parser.add_argument("--w_sf", type=float, default=0.1,
+                        help='weights of sf')
     parser.add_argument("--decay_iteration", type=int, default=50, 
                         help='data driven priors decay iteration * 10000')
 
@@ -327,7 +329,7 @@ def train():
     sf_bw = torch.tensor(sf_bw)
     poses = torch.Tensor(poses).to(device)
 
-    N_iters = 10000#500 * 1000 #1000000
+    N_iters = 10000 + 1#500 * 1000 #1000000
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -450,8 +452,7 @@ def train():
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
         #sf loss
-        w_sf = 0.3
-        sf_loss = w_sf * (img2mse(ret['sf_ref2post_map_ref'], target_sf_fw) + img2mse(ret['sf_ref2prev_map_ref'], target_sf_bw))
+        sf_loss = args.w_sf * (img2mse(ret['sf_ref2post_map_ref'], target_sf_fw) + img2mse(ret['sf_ref2prev_map_ref'], target_sf_bw))
 
         if chain_5frames:
 
