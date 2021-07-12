@@ -244,7 +244,6 @@ def train():
         img_idx_embed = target_idx/float(num_img) * 2. - 1.0
 
         poses = torch.Tensor(poses).to(device)
-        pose = poses[target_idx, :3, :4]
         chain_bwd = 1
         torch.cuda.empty_cache()
         with torch.no_grad():
@@ -252,7 +251,7 @@ def train():
                                        'rendered_frames_{}_{:06d}'.format('test' if args.render_test else 'path', start))
 
             render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img,
-                                H, W, focal, pose, render_kwargs_train, testsavedir)
+                                H, W, focal, poses, render_kwargs_train, testsavedir)
 
         return
 

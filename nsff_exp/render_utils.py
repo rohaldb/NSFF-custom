@@ -679,11 +679,21 @@ def render(img_idx, chain_bwd, chain_5frames,
 """
 Renders the target index depth map and rgb image and writes to disk
 """
-def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, focal, pose, render_kwargs, save_dir):
+def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, focal, poses, render_kwargs, save_dir):
+    pose = poses[target_idx, :3, :4]
+    pose_post = poses[min(target_idx + 1, int(num_img) - 1), :3, :4]
+    pose_prev = poses[max(target_idx - 1, 0), :3, :4]
     ret = render(img_idx_embed, chain_bwd, False,
                  num_img, H, W, focal,
                  chunk=1024 * 16, c2w=pose,
                  **render_kwargs)
+
+    render_of_fwd, render_of_bwd = compute_optical_flow(pose_post, pose, pose_prev,
+                                                        H, W, focal, ret, n_dim=2)
+
+    render_flow_fwd_rgb = torch.Tensor(flow_to_image(render_of_fwd.cpu().numpy()) / 255.).cpu()
+    render_flow_bwd_rgb = torch.Tensor(flow_to_image(render_of_bwd.cpu().numpy()) / 255.).cpu()
+
     for key in ret.keys():
         ret[key] = ret[key].to(torch.device("cpu"))
 
@@ -697,7 +707,9 @@ def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, foc
         "prev_from_ref": ret['rgb_map_prev_dy'],
         "post_from_ref": ret['rgb_map_post_dy'],
         "prob_prev": ret['prob_map_post'].unsqueeze(-1),
-        "prob_post": ret['prob_map_post'].unsqueeze(-1)
+        "prob_post": ret['prob_map_post'].unsqueeze(-1),
+        "flow_fwd": render_flow_fwd_rgb,
+        "flow_bwd": render_flow_bwd_rgb,
     }
 
     for name, image in images.items():
