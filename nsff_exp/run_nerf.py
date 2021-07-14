@@ -541,6 +541,12 @@ def train():
 
                 pose_post = poses[min(img_i + 1, int(num_img) - 1), :3,:4]
                 pose_prev = poses[max(img_i - 1, 0), :3,:4]
+                render_of_fwd, render_of_bwd = compute_optical_flow(pose_post, pose, pose_prev,
+                                                                    H, W, focal, ret, n_dim=2)
+
+                render_flow_fwd_rgb = torch.Tensor(flow_to_image(render_of_fwd.cpu().numpy())/255.)
+                render_flow_bwd_rgb = torch.Tensor(flow_to_image(render_of_bwd.cpu().numpy())/255.)
+
 
                 for key in ret.keys():
                     ret[key] = ret[key].to(torch.device("cpu"))
@@ -555,6 +561,10 @@ def train():
                 writer.add_image("val/monocular_disp", 
                                 torch.clamp(target_depth /percentile(target_depth, 97), 0., 1.), 
                                 global_step=i, dataformats='HW')
+                writer.add_image("val/render_flow_fwd_rgb", render_flow_fwd_rgb,
+                                global_step=i, dataformats='HWC')
+                writer.add_image("val/render_flow_bwd_rgb", render_flow_bwd_rgb,
+                                global_step=i, dataformats='HWC')
 
                 ### write video to tensorboard ###
 
@@ -578,7 +588,7 @@ def train():
 
                 # write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
 
-                bt_render_poses = linearly_interpolate_poses(poses, 10)
+                bt_render_poses = linearly_interpolate_poses(poses.cpu().numpy(), 10)
                 testsavedir = os.path.join(basedir, expname, 'render-spiral-frame')
                 os.makedirs(testsavedir, exist_ok=True)
                 video_path = render_bullet_time(bt_render_poses, img_idx_embed, num_img, hwf,
@@ -592,7 +602,7 @@ def train():
 
         global_step += 1
 
-#linearly interpolated num_frames poses between poses[1] and poses[-1]
+#linearly interpolated num_frames poses between poses[1] and poses[-1]. Assumes poses is numpy array
 def linearly_interpolate_poses(poses, num_poses):
     fst = poses[0]
     lst = poses[-1]
