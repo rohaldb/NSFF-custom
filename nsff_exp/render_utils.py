@@ -704,8 +704,8 @@ def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, foc
     images = {
         "depth": depth,
         "ref": ret['rgb_map_ref'],
-        "prev_from_ref": ret['rgb_map_prev_dy'],
-        "post_from_ref": ret['rgb_map_post_dy'],
+        "ref_from_prev": ret['rgb_map_prev_dy'],
+        "ref_from_post": ret['rgb_map_post_dy'],
         "prob_prev": ret['prob_map_post'].unsqueeze(-1),
         "prob_post": ret['prob_map_post'].unsqueeze(-1),
         "flow_fwd": render_flow_fwd_rgb,
