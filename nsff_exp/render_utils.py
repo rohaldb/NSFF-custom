@@ -698,7 +698,7 @@ def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, foc
         ret[key] = ret[key].to(torch.device("cpu"))
 
     # collect and process images
-    depth = torch.clamp(ret['depth_map_ref'], 0., 1.)
+    depth = normalize_depth(ret['depth_map_ref'])
     depth = depth.unsqueeze(-1).repeat(1, 1, 3)
 
     images = {
