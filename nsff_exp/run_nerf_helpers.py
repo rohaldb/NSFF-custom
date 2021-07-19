@@ -402,6 +402,44 @@ def percentile(t, q):
     return result
 
 
+COS_45 = 1. / np.sqrt(2)
+SIN_45 = 1. / np.sqrt(2)
+from skimage.color import lab2rgb
+
+
+def compute_color_sceneflow(sf):
+    """
+    scene flow color coding using CIE-LAB space.
+    sf: input scene flow, tensor type, size of (h, w, 3)
+    """
+    sf = sf.cpu().numpy()
+
+    # coordinate normalize
+    max_sf = np.sqrt(np.sum(np.square(sf), axis=2)).max()
+    sf = sf / max_sf
+
+    sf_x = sf[:, :, 0]
+    sf_y = sf[:, :, 1]
+    sf_z = sf[:, :, 2]
+
+    # rotating 45 degree
+    # transform X, Y, Z -> Y, X', Z' -> L, a, b
+    sf_x_tform = sf_x * COS_45 + sf_z * SIN_45
+    sf_z_tform = -sf_x * SIN_45 + sf_z * COS_45
+    sf = np.stack([sf_y, sf_x_tform, sf_z_tform], axis=2)  # [-1, 1] cube
+
+    # norm vector to lab space: x, y, z -> z, x, y -> l, a, b
+    sf[:, :, 0] = sf[:, :, 0] * 50 + 50
+    sf[:, :, 1] = sf[:, :, 1] * 127
+    sf[:, :, 2] = sf[:, :, 2] * 127
+
+    lab_vis = lab2rgb(sf)
+    lab_vis = np.uint8(lab_vis * 255)
+    lab_vis = np.stack([lab_vis[:, :, 2], lab_vis[:, :, 1], lab_vis[:, :, 0]], axis=2)
+
+    return lab_vis
+
+
 def make_color_wheel():
   """
   Generate color wheel according Middlebury color code
@@ -502,7 +540,7 @@ def flow_to_image(flow, display=False):
   :param flow: optical flow map
   :return: optical flow image in middlebury color
   """
-  UNKNOWN_FLOW_THRESH = 100
+  UNKNOWN_FLOW_THRESH = 1e7
   u = flow[:, :, 0]
   v = flow[:, :, 1]
 
@@ -526,8 +564,8 @@ def flow_to_image(flow, display=False):
 
   maxrad = max(-1, np.max(rad))
 
-  if display:
-    print("max flow: %.4f\nflow range:\nu = %.3f .. %.3f\nv = %.3f .. %.3f" % (maxrad, minu,maxu, minv, maxv))
+  # if display:
+  #   print("max flow: %.4f\nflow range:\nu = %.3f .. %.3f\nv = %.3f .. %.3f" % (maxrad, minu,maxu, minv, maxv))
 
   u = u/(maxrad + np.finfo(float).eps)
   v = v/(maxrad + np.finfo(float).eps)

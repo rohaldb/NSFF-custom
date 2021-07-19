@@ -156,6 +156,8 @@ def config_parser():
                         help='frequency of console printout and metric loggin')
     parser.add_argument("--i_img",     type=int, default=500, 
                         help='frequency of tensorboard image logging')
+    parser.add_argument("--i_vid", type=int, default=500,
+                        help='frequency of tensorboard video logging')
     parser.add_argument("--i_weights", type=int, default=10000, 
                         help='frequency of weight ckpt saving')
 
@@ -514,28 +516,22 @@ def train():
 
         if i % args.i_print == 0 and i > 0:
             writer.add_scalar("train/loss", loss.item(), i)
-            
             writer.add_scalar("train/render_loss", render_loss.item(), i)
             writer.add_scalar("train/depth_loss", depth_loss.item(), i)
             writer.add_scalar("train/prob_reg_loss", prob_reg_loss.item(), i)
             writer.add_scalar("train/sf_loss", sf_loss.item(), i)
 
-        # """
-        if i%args.i_img == 0 and i > 0:
-            # img_i = np.random.choice(i_val)
-            print("writing images")
-
-            #write the target image:
+        if i % args.i_img == 0 and i > 0:
             img_i = target_idx
-
             target = images[img_i]
-            pose = poses[img_i, :3,:4]
+            pose = poses[img_i, :3, :4]
+            target_sf_fw = sf_fw[img_i]
+            target_sf_bw = sf_bw[img_i]
             target_depth = depths[img_i] - torch.min(depths[img_i])
-
             img_idx_embed = img_i/num_img * 2. - 1.0
 
             with torch.no_grad():
-                torch.cuda.empty_cache()
+                print("writing images")
                 ret = render(img_idx_embed, chain_bwd, False,
                              num_img, H, W, focal,
                              chunk=1024*16, c2w=pose,
@@ -555,25 +551,44 @@ def train():
 
                 writer.add_image("val/rgb_map_ref", torch.clamp(ret['rgb_map_ref'], 0., 1.),
                                  global_step=i, dataformats='HWC')
+                writer.add_image("val/gt_rgb", target,
+                                global_step=i, dataformats='HWC')
+
+                writer.add_image("val/ref_from_prev", torch.clamp(ret['rgb_map_prev_dy'], 0., 1.),
+                                 global_step=i, dataformats='HWC')
+                writer.add_image("val/ref_from_post", torch.clamp(ret['rgb_map_post_dy'], 0., 1.),
+                                 global_step=i, dataformats='HWC')
+
+                writer.add_image("val/gt_sf_fw", compute_color_sceneflow(target_sf_fw),
+                                 global_step=i, dataformats='HWC')
+                writer.add_image("val/gt_sf_bw", compute_color_sceneflow(target_sf_bw), global_step=i, dataformats='HWC')
+
+                writer.add_image("val/sf_fw_map", compute_color_sceneflow(-ret['sf_map_ref2post']),
+                                 global_step=i, dataformats='HWC')
+                writer.add_image("val/sf_bw_map", compute_color_sceneflow(-ret['sf_map_ref2prev']),
+                                 global_step=i, dataformats='HWC')
+
+                writer.add_image("val/render_opt_flow_fwd_rgb", render_flow_fwd_rgb,
+                                 global_step=i, dataformats='HWC')
+                writer.add_image("val/render_opt_flow_bwd_rgb", render_flow_bwd_rgb,
+                                 global_step=i, dataformats='HWC')
+
                 writer.add_image("val/depth_map_ref", normalize_depth(ret['depth_map_ref']),
-                                global_step=i, dataformats='HW')
-               
-                writer.add_image("val/gt_rgb", target, 
-                                global_step=i, dataformats='HWC')
-                writer.add_image("val/monocular_disp", 
-                                torch.clamp(target_depth /percentile(target_depth, 97), 0., 1.), 
-                                global_step=i, dataformats='HW')
-                writer.add_image("val/render_flow_fwd_rgb", render_flow_fwd_rgb,
-                                global_step=i, dataformats='HWC')
-                writer.add_image("val/render_flow_bwd_rgb", render_flow_bwd_rgb,
-                                global_step=i, dataformats='HWC')
+                                 global_step=i, dataformats='HW')
+                writer.add_image("val/gt_depth_map",
+                                    torch.clamp(target_depth /percentile(target_depth, 97), 0., 1.),
+                                    global_step=i, dataformats='HW')
 
-                ### write video to tensorboard ###
+        if i%args.i_vid == 0 and i > 0:
+            with torch.no_grad():
+                print("writing video")
+                torch.cuda.empty_cache()
 
+                img_i = target_idx
                 num_img = float(poses.shape[0])
                 ref_c2w = torch.Tensor(ref_c2w).to(device)
-                pose = poses[target_idx, :3, :4]
-                render_poses = torch.Tensor(render_poses).to(device)
+                pose = poses[img_i, :3, :4]
+                img_idx_embed = img_i / num_img * 2. - 1.0
 
                 # UNCOMMENT TO RENDER TIME INTERPOLATION DURING TRAINING
 
@@ -587,9 +602,11 @@ def train():
                 #                                    skip_blending=True,
                 #                                    output_flow=False
                 #                                    )
-
+                #
                 # write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
 
+                # uncomment this line to use spiral poses
+                # render_poses = torch.Tensor(render_poses).to(device)
                 bt_render_poses = linearly_interpolate_poses(poses.cpu().numpy(), 10)
                 testsavedir = os.path.join(basedir, expname, 'render-spiral-frame')
                 os.makedirs(testsavedir, exist_ok=True)
