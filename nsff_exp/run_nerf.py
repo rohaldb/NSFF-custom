@@ -456,7 +456,9 @@ def train():
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
         #sf loss
-        sf_loss = args.w_sf * (img2mse(ret['sf_ref2post_map_ref'], target_sf_fw) + img2mse(ret['sf_ref2prev_map_ref'], target_sf_bw))
+        sf_loss = args.w_sf * compute_sf_loss(target_sf_fw, target_sf_bw,
+                                              -ret['sf_map_ref2post'], -ret['sf_map_ref2prev'], ret['weights_ref_dy'],
+                                              ret['raw_pts_ref'], H, W, focal)
 
         if chain_5frames:
 

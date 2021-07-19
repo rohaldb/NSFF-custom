@@ -1129,7 +1129,7 @@ def render_rays(img_idx,
     raw_sf_ref2post = raw_ref[:, :, 7:10]
     # raw_blend_w_ref = raw_ref[:, :, 12]
 
-    rgb_map_ref, depth_map_ref, sf_ref2prev_map_ref, sf_ref2post_map_ref, \
+    rgb_map_ref, depth_map_ref, sf_map_ref2prev, sf_map_ref2post, \
     rgb_map_ref_dy, depth_map_ref_dy, weights_ref_dy = raw2outputs_blending(raw_rgba_ref, raw_rgba_rigid,
                                                                             raw_sf_ref2prev,
                                                                             raw_sf_ref2post,
@@ -1139,7 +1139,7 @@ def render_rays(img_idx,
 
 
     ret = {'rgb_map_ref': rgb_map_ref, 'depth_map_ref' : depth_map_ref,
-            'sf_ref2prev_map_ref': sf_ref2prev_map_ref, 'sf_ref2post_map_ref': sf_ref2post_map_ref,
+            'sf_map_ref2prev': sf_map_ref2prev, 'sf_map_ref2post': sf_map_ref2post,
             'rgb_map_rig':rgb_map_rig, 'depth_map_rig':depth_map_rig, 
             'rgb_map_ref_dy':rgb_map_ref_dy, 'weights_ref_dy':weights_ref_dy, 
             'depth_map_ref_dy':depth_map_ref_dy}
@@ -1156,9 +1156,11 @@ def render_rays(img_idx,
         ret['raw_pts_ref'] = pts_ref[:, :, :3]
 
     img_idx_rep_post = torch.ones_like(pts[:, :, 0:1]) * (img_idx + 1./num_img * 2. )
+    # undo motion from t+1 to t. i.e. raw_sf_ref2post is sf from t+1 to t
     pts_post = torch.cat([(pts_ref[:, :, :3] + raw_sf_ref2post), img_idx_rep_post] , -1)
 
     img_idx_rep_prev = torch.ones_like(pts[:, :, 0:1]) * (img_idx - 1./num_img * 2. )    
+    # undo motion from t-1 to t. i.e. raw_sf_ref2prev is sf from t-1 to t.
     pts_prev = torch.cat([(pts_ref[:, :, :3] + raw_sf_ref2prev), img_idx_rep_prev] , -1)
 
     # render points at t - 1
@@ -1186,6 +1188,7 @@ def render_rays(img_idx,
     raw_sf_post2postpost = raw_post[:, :, 7:10]
     # raw_blend_w_post = raw_post[:, :, 12]
 
+    #r render from t + 1
     rgb_map_post_dy, _, weights_post_dy = raw2outputs_warp(raw_rgba_post,
                                                            z_vals, rays_d, 
                                                            raw_noise_std)

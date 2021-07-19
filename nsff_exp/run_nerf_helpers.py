@@ -297,6 +297,27 @@ def ndc_rays(H, W, focal, near, rays_o, rays_d):
 
 #     return samples
 
+"""
+computes the loss between 'ground truth' sf and the model's output. Since the model's output is in NDC
+but the ground truth is in world coordinates, we must convert the NDC into world first. 
+"""
+def compute_sf_loss(gt_sf_fw_world, gt_sf_bw_world, pred_sf_fw_ndc, pred_sf_bw_ndc, weights_ref, raw_pts, H, W, f):
+
+    # obtain 3d NDC coordinates of every point in the scene
+    pts_3d_ndc = torch.sum(weights_ref[...,None] * raw_pts, -2)
+
+    # fwd sf loss
+    # compute NDC coordinates of where the sf moves each point
+    pts_3d_ndc_end = pts_3d_ndc + pred_sf_fw_ndc
+    # convert both to world coordinates and compute sf vector between them
+    pred_sf_fw_world = NDC2Euclidean(pts_3d_ndc_end, H, W, f) - NDC2Euclidean(pts_3d_ndc, H, W, f)
+    loss = torch.mean((gt_sf_fw_world - pred_sf_fw_world) ** 2)
+
+    # bwd sf loss
+    pts_3d_ndc_end = pts_3d_ndc + pred_sf_bw_ndc
+    pred_sf_bw_world = NDC2Euclidean(pts_3d_ndc_end, H, W, f) - NDC2Euclidean(pts_3d_ndc, H, W, f)
+    loss += torch.mean((gt_sf_bw_world - pred_sf_bw_world) ** 2)
+    return loss
 
 
 def compute_depth_loss(pred_depth, gt_depth):   
