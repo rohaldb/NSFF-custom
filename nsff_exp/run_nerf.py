@@ -459,7 +459,7 @@ def train():
 
         #sf loss
         sf_loss = args.w_sf * compute_sf_loss(target_sf_fw, target_sf_bw,
-                                              -ret['sf_map_ref2post'], -ret['sf_map_ref2prev'], ret['weights_ref_dy'],
+                                              ret['sf_map_ref2post'], ret['sf_map_ref2prev'], ret['weights_ref_dy'],
                                               ret['raw_pts_ref'], H, W, focal)
 
         if chain_5frames:
@@ -563,9 +563,9 @@ def train():
                                  global_step=i, dataformats='HWC')
                 writer.add_image("val/gt_sf_bw", compute_color_sceneflow(target_sf_bw), global_step=i, dataformats='HWC')
 
-                writer.add_image("val/sf_fw_map", compute_color_sceneflow(-ret['sf_map_ref2post']),
+                writer.add_image("val/sf_fw_map", compute_color_sceneflow(ret['sf_map_ref2post']),
                                  global_step=i, dataformats='HWC')
-                writer.add_image("val/sf_bw_map", compute_color_sceneflow(-ret['sf_map_ref2prev']),
+                writer.add_image("val/sf_bw_map", compute_color_sceneflow(ret['sf_map_ref2prev']),
                                  global_step=i, dataformats='HWC')
 
                 writer.add_image("val/render_opt_flow_fwd_rgb", render_flow_fwd_rgb,

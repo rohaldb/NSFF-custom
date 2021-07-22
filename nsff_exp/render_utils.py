@@ -710,8 +710,8 @@ def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, foc
         "prob_post": ret['prob_map_post'].unsqueeze(-1),
         "opt_flow_fwd": render_flow_fwd_rgb,
         "opt_flow_bwd": render_flow_bwd_rgb,
-        "sf_fwd": torch.tensor(compute_color_sceneflow(-ret['sf_map_ref2post'])).cpu(),
-        "sf_bwd": torch.tensor(compute_color_sceneflow(-ret['sf_map_ref2prev'])).cpu()
+        "sf_fwd": torch.tensor(compute_color_sceneflow(ret['sf_map_ref2post'])).cpu(),
+        "sf_bwd": torch.tensor(compute_color_sceneflow(ret['sf_map_ref2prev'])).cpu()
     }
 
     for name, image in images.items():
