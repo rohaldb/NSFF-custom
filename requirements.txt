@@ -6,5 +6,6 @@ scipy
 imageio
 av
 tqdm
+ray[tune]
 #uncomment if outside of google colab
 #cupy

@@ -15,159 +15,132 @@ from load_llff import *
 from tqdm import tqdm
 import torchvision
 
+from ray import tune
+from ray.tune import CLIReporter
+from ray.tune.schedulers import ASHAScheduler
+from functools import partial
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(1)
 DEBUG = False
 
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
 def config_parser():
+    return dotdict({
+        "render_lockcam_slowmo": False,
+        "render_slowmo_bt": False,
+        "final_height": 288,
+        "netdepth": 8,
+        "netwidth": 256,
+        "netdepth_fine": 8,
+        "netwidth_fine": 256,
+        "N_rand": 32 * 32 * 4,
+        "lrate": 5e-4,
+        "lrate_decay": 250,
+        "chunk": 1024 * 128,
+        "netchunk": 1024 * 128,
+        "no_reload": False,
+        "ft_path": None,
+        "N_samples": 64,
+        "N_importance": 0,
+        "perturb": 1.,
+        "use_viewdirs": False,
+        "i_embed": 0,
+        "multires": 10,
+        "multires_views": 4,
+        "raw_noise_std": 0.,
+        "render_bt": False,
+        "render_test": False,
+        "render_factor": 0,
+        "render_single_frame": False,
+        "skip_blending": False,
+        "output_lockcam_flow": False,
+        "bt_linear_interpolation": False,
+        "dataset_type": 'llff',
+        "testskip": 8,
+        "white_bkgd": False,
+        "factor": 8,
+        "no_ndc": False,
+        "lindisp": False,
+        "spherify": False,
+        "llffhold": 8,
+        "target_idx": 10,
+        "num_extra_sample": 512,
+        "decay_depth_w": False,
+        "use_motion_mask": False,
+        "decay_optical_flow_w": False,
+        "w_depth": 0.04,
+        "w_optical_flow": 0.02,
+        "w_sm": 0.1,
+        "w_sf_reg": 0.01,
+        "w_cycle": 0.1,
+        "w_prob_reg": 0.1,
+        "w_sf": 0.1,
+        "decay_iteration": 50,
+        "start_frame": 0,
+        "end_frame": 30,
+        "i_print": 500,
+        "i_img": 500,
+        "i_vid": 10,
+        "i_weights": 10000,
 
-    import configargparse
-    parser = configargparse.ArgumentParser()
-    parser.add_argument('--config', is_config_file=True, 
-                        help='config file path')
-    parser.add_argument("--expname", type=str, 
-                        help='experiment name')
-    parser.add_argument("--basedir", type=str, default='./logs/', 
-                        help='where to store ckpts and logs')
-    parser.add_argument("--datadir", type=str, default='./data/llff/fern',
+        "expname": "kid-running_ndc_5f_sv_of_sm_unify3_testing",
 
-                        help='input data directory')
-    parser.add_argument("--render_lockcam_slowmo", action='store_true', 
-                        help='render fixed view + slowmo')
-    parser.add_argument("--render_slowmo_bt", action='store_true',
-                        help='render space-time interpolation')
+        "basedir": "./logs",
+        "datadir": "/content/nerf_data/kid-running/dense",
 
-    parser.add_argument("--final_height", type=int, default=288, 
-                        help='training image height, default is 512x288')
-    # training options
-    parser.add_argument("--netdepth", type=int, default=8, 
-                        help='layers in network')
-    parser.add_argument("--netwidth", type=int, default=256, 
-                        help='channels per layer')
-    parser.add_argument("--netdepth_fine", type=int, default=8, 
-                        help='layers in fine network')
-    parser.add_argument("--netwidth_fine", type=int, default=256, 
-                        help='channels per layer in fine network')
-    parser.add_argument("--N_rand", type=int, default=32*32*4, 
-                        help='batch size (number of random rays per gradient step)')
-    parser.add_argument("--lrate", type=float, default=5e-4, 
-                        help='learning rate')
-    parser.add_argument("--lrate_decay", type=int, default=250, 
-                        help='exponential learning rate decay (in 1000 steps)')
-    parser.add_argument("--chunk", type=int, default=1024*128, 
-                        help='number of rays processed in parallel, decrease if running out of memory')
-    parser.add_argument("--netchunk", type=int, default=1024*128, 
-                        help='number of pts sent through network in parallel, decrease if running out of memory')
-    parser.add_argument("--no_batching", action='store_true', 
-                        help='only take random rays from 1 image at a time')
-    parser.add_argument("--no_reload", action='store_true', 
-                        help='do not reload weights from saved ckpt')
-    parser.add_argument("--ft_path", type=str, default=None, 
-                        help='specific weights npy file to reload for coarse network')
+        "dataset_type": "llff",
 
-    # rendering options
-    parser.add_argument("--N_samples", type=int, default=64, 
-                        help='number of coarse samples per ray')
-    parser.add_argument("--N_importance", type=int, default=0,
-                        help='number of additional fine samples per ray')
-    parser.add_argument("--perturb", type=float, default=1.,
-                        help='set to 0. for no jitter, 1. for jitter')
-    parser.add_argument("--use_viewdirs", action='store_true', 
-                        help='use full 5D input instead of 3D')
-    parser.add_argument("--i_embed", type=int, default=0, 
-                        help='set 0 for default positional encoding, -1 for none')
-    parser.add_argument("--multires", type=int, default=10, 
-                        help='log2 of max freq for positional encoding (3D location)')
-    parser.add_argument("--multires_views", type=int, default=4, 
-                        help='log2 of max freq for positional encoding (2D direction)')
-    parser.add_argument("--raw_noise_std", type=float, default=0., 
-                        help='std dev of noise added to regularize sigma_a output, 1e0 recommended')
+        "factor": 2,
+        "llffhold": 10,
 
-    parser.add_argument("--render_bt", action='store_true', 
-                        help='render bullet time')
+        "N_rand": 1024,
+        "N_samples": 128,
+        "N_importance": 0,
+        "netwidth": 256,
 
-    parser.add_argument("--render_test", action='store_true', 
-                        help='do not optimize, reload weights and render out render_poses path')
-    parser.add_argument("--render_factor", type=int, default=0, 
-                        help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
-    parser.add_argument("--render_single_frame", action='store_true',
-                        help='do not optimize, reload weights and render only the target index frame')
-    parser.add_argument("--skip_blending", action='store_true',
-                        help='skips the blending of images when doing fixed lockcam slowmo')
-    parser.add_argument("--output_lockcam_flow", action='store_true',
-                        help='writes optical flow files to disk during rendering of lockcam slowmo')
-    parser.add_argument("--bt_linear_interpolation", action='store_true',
-                        help='linearly interpolates poses between first and last frame for bullet time poses')
+        "use_viewdirs": True,
+        "raw_noise_std": 1e0,
+        "no_ndc": False,
+        "lindisp": False,
+        "no_batching": True,
+        "spherify": False,
+        "decay_depth_w": True,
+        "decay_optical_flow_w": True,
+        "use_motion_mask": True,
+        "num_extra_sample": 512,
+        "decay_iteration": 30,
 
-    # dataset options
-    parser.add_argument("--dataset_type", type=str, default='llff', 
-                        help='options: llff / blender / deepvoxels')
-    parser.add_argument("--testskip", type=int, default=8, 
-                        help='will load 1/N images from test/val sets, useful for large datasets like deepvoxels')
-    ## blender flags
-    parser.add_argument("--white_bkgd", action='store_true', 
-                        help='set to render synthetic data on a white bkgd (always use for dvoxels)')
+        "w_depth": 0.04,
+        "w_optical_flow": 0.02,
+        "w_sm": 0.1,
+        "w_sf_reg": 0.01,
+        "w_cycle": 1.0,
+        "w_prob_reg": 0.1,
+        "target_idx": 1,
 
-    ## llff flags
-    parser.add_argument("--factor", type=int, default=8, 
-                        help='downsample factor for LLFF images')
-    parser.add_argument("--no_ndc", action='store_true', 
-                        help='do not use normalized device coordinates (set for non-forward facing scenes)')
-    parser.add_argument("--lindisp", action='store_true', 
-                        help='sampling linearly in disparity rather than depth')
-    parser.add_argument("--spherify", action='store_true', 
-                        help='set for spherical 360 scenes')
-    parser.add_argument("--llffhold", type=int, default=8, 
-                        help='will take every 1/N images as LLFF test set, paper uses 8')
-
-    parser.add_argument("--target_idx", type=int, default=10, 
-                        help='target_idx')
-    parser.add_argument("--num_extra_sample", type=int, default=512, 
-                        help='num_extra_sample')
-    parser.add_argument("--decay_depth_w", action='store_true', 
-                        help='decay depth weights')
-    parser.add_argument("--use_motion_mask", action='store_true', 
-                        help='use motion segmentation mask for hard-mining data-driven initialization')
-    parser.add_argument("--decay_optical_flow_w", action='store_true', 
-                        help='decay optical flow weights')
-
-    parser.add_argument("--w_depth",   type=float, default=0.04, 
-                        help='weights of depth loss')
-    parser.add_argument("--w_optical_flow", type=float, default=0.02, 
-                        help='weights of optical flow loss')
-    parser.add_argument("--w_sm", type=float, default=0.1, 
-                        help='weights of scene flow smoothness')
-    parser.add_argument("--w_sf_reg", type=float, default=0.01, 
-                        help='weights of scene flow regularization')
-    parser.add_argument("--w_cycle", type=float, default=0.1, 
-                        help='weights of cycle consistency')
-    parser.add_argument("--w_prob_reg", type=float, default=0.1, 
-                        help='weights of disocculusion weights')
-    parser.add_argument("--w_sf", type=float, default=0.1,
-                        help='weights of sf')
-    parser.add_argument("--decay_iteration", type=int, default=50, 
-                        help='data driven priors decay iteration * 10000')
-
-    parser.add_argument("--start_frame", type=int, default=0)
-    parser.add_argument("--end_frame", type=int, default=30)
-
-    # logging/saving options
-    parser.add_argument("--i_print",   type=int, default=500, 
-                        help='frequency of console printout and metric loggin')
-    parser.add_argument("--i_img",     type=int, default=500, 
-                        help='frequency of tensorboard image logging')
-    parser.add_argument("--i_vid", type=int, default=500,
-                        help='frequency of tensorboard video logging')
-    parser.add_argument("--i_weights", type=int, default=10000, 
-                        help='frequency of weight ckpt saving')
-
-    return parser
+        "start_frame": 8,
+        "end_frame": 11,
+    })
 
 
-def train():
 
-    parser = config_parser()
-    args = parser.parse_args()
+def train(config):
+    args = config_parser()
+    args["render_loss"] = config["render_loss"]
+    args["prob_reg_loss"] = config["prob_reg_loss"]
+    args["depth_loss"] = config["depth_loss"]
+    args["sf_loss"] = config["sf_loss"]
+    args["expname"] = args["expname"] + "render:{},prob_reg:{},depth:{},sf:{}".format(config["render_loss"],
+                                                                                   config["prob_reg_loss"],
+                                                                                   config["depth_loss"],
+                                                                                   config["sf_loss"])
+
 
     # Load data
     if args.dataset_type == 'llff':
@@ -223,10 +196,10 @@ def train():
         for arg in sorted(vars(args)):
             attr = getattr(args, arg)
             file.write('{} = {}\n'.format(arg, attr))
-    if args.config is not None:
-        f = os.path.join(basedir, expname, 'config.txt')
-        with open(f, 'w') as file:
-            file.write(open(args.config, 'r').read())
+    # if args.config is not None:
+    #     f = os.path.join(basedir, expname, 'config.txt')
+    #     with open(f, 'w') as file:
+    #         file.write(open(args.config, 'r').read())
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args)
@@ -581,17 +554,17 @@ def train():
 
         if i%args.i_vid == 0 and i > 0:
             with torch.no_grad():
-                print("writing video")
-                torch.cuda.empty_cache()
-
-                img_i = target_idx
-                num_img = float(poses.shape[0])
-                ref_c2w = torch.Tensor(ref_c2w).to(device)
-                pose = poses[img_i, :3, :4]
-                img_idx_embed = img_i / num_img * 2. - 1.0
-
-                # UNCOMMENT TO RENDER TIME INTERPOLATION DURING TRAINING
-
+                # print("writing video")
+                # torch.cuda.empty_cache()
+                #
+                # img_i = target_idx
+                # num_img = float(poses.shape[0])
+                # ref_c2w = torch.Tensor(ref_c2w).to(device)
+                # pose = poses[img_i, :3, :4]
+                # img_idx_embed = img_i / num_img * 2. - 1.0
+                #
+                # # UNCOMMENT TO RENDER TIME INTERPOLATION DURING TRAINING
+                #
                 # testsavedir = os.path.join(basedir, expname, 'render-lockcam-slowmo')
                 # os.makedirs(testsavedir, exist_ok=True)
                 # video_path = render_lockcam_slowmo(ref_c2w, num_img, hwf,
@@ -604,22 +577,29 @@ def train():
                 #                                    )
                 #
                 # write_video_to_tensorboard(video_path, "lockcam-slomo", i, writer)
-
-                # uncomment this line to use spiral poses
+                #
+                # # uncomment this line to use spiral poses
                 # render_poses = torch.Tensor(render_poses).to(device)
-                bt_render_poses = linearly_interpolate_poses(poses.cpu().numpy(), 10)
-                testsavedir = os.path.join(basedir, expname, 'render-spiral-frame')
-                os.makedirs(testsavedir, exist_ok=True)
-                video_path = render_bullet_time(bt_render_poses, img_idx_embed, num_img, hwf,
-                                                args.chunk, render_kwargs_test,
-                                                gt_imgs=images, savedir=testsavedir,
-                                                render_factor=args.render_factor)
+                # bt_render_poses = linearly_interpolate_poses(poses.cpu().numpy(), 10)
+                # testsavedir = os.path.join(basedir, expname, 'render-spiral-frame')
+                # os.makedirs(testsavedir, exist_ok=True)
+                # video_path = render_bullet_time(bt_render_poses, img_idx_embed, num_img, hwf,
+                #                                 args.chunk, render_kwargs_test,
+                #                                 gt_imgs=images, savedir=testsavedir,
+                #                                 render_factor=args.render_factor)
+                #
+                # write_video_to_tensorboard(video_path, "bullet-time", i, writer)
 
-                write_video_to_tensorboard(video_path, "bullet-time", i, writer)
+                tune.report(accuracy=compute_accuracy(config))
+
+
 
             torch.cuda.empty_cache()
 
         global_step += 1
+
+def compute_accuracy(config):
+    return config["render_loss"] + config["prob_reg_loss"] + config["depth_loss"] + config["sf_loss"]
 
 #linearly interpolated num_frames poses between poses[1] and poses[-1]. Assumes poses is numpy array
 def linearly_interpolate_poses(poses, num_poses):
@@ -635,8 +615,42 @@ def write_video_to_tensorboard(video_path, tag, global_step, writer):
     v = torch.swapaxes(v, 2, 4)
     v = torch.swapaxes(v, 3, 4)
     writer.add_video("val/" + tag, vid_tensor=v, global_step=global_step, fps=20)
-    
+
+def main(num_samples=10, max_num_epochs=10, gpus_per_trial=1):
+    config = {
+        "sf_loss": tune.choice([2, 4, 8, 16]),
+        "prob_reg_loss": tune.choice([0.1]),
+        "depth_loss": tune.choice([0.04, 0.1, 0.2, 0.4]),
+        "render_loss": tune.choice([2, 4, 8, 16])
+    }
+    scheduler = ASHAScheduler(
+        metric="accuracy",
+        mode="max",
+        max_t=max_num_epochs,
+        grace_period=1,
+        reduction_factor=2)
+    reporter = CLIReporter(
+        # parameter_columns=["l1", "l2", "lr", "batch_size"],
+        metric_columns=["loss", "training_iteration"])
+    # result = tune.run(
+    #     train,
+    #     resources_per_trial={"gpu": gpus_per_trial},
+    #     config=config,
+    #     num_samples=num_samples,
+    #     scheduler=scheduler,
+    #     progress_reporter=reporter)
+
+    result = tune.run(train, config=config, resources_per_trial={"cpu": 0, "gpu": 1})
+
+    best_trial = result.get_best_trial("loss", "min", "last")
+    print("Best trial config: {}".format(best_trial.config))
+    print("Best trial final validation loss: {}".format(
+        best_trial.last_result["loss"]))
+    print("Best trial final validation accuracy: {}".format(
+        best_trial.last_result["accuracy"]))
+
+
+
 if __name__=='__main__':
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
-
-    train()
+    main(num_samples=1, max_num_epochs=10, gpus_per_trial=1)
