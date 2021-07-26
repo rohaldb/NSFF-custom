@@ -189,6 +189,10 @@ def train():
         i_train = np.array([i for i in np.arange(int(images.shape[0])) if
                         (i not in i_test and i not in i_val)])
 
+        for msk, fw, bw in zip(masks, sf_fw, sf_bw):
+            fw[msk == 0] = np.zeros_like(fw[0, 0])
+            bw[msk == 0] = np.zeros_like(bw[0, 0])
+
         print('DEFINING BOUNDS')
         if args.no_ndc:
             near = np.percentile(bds[:, 0], 5) * 0.9 #np.ndarray.min(bds) #* .9
@@ -575,7 +579,7 @@ def train():
 
                 writer.add_image("val/depth_map_ref", normalize_depth(ret['depth_map_ref']),
                                  global_step=i, dataformats='HW')
-                writer.add_image("val/gt_depth_map",
+                writer.add_image("val/gt_disp_map",
                                     torch.clamp(target_depth /percentile(target_depth, 97), 0., 1.),
                                     global_step=i, dataformats='HW')
 

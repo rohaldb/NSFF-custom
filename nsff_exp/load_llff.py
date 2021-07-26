@@ -74,11 +74,28 @@ def _load_data(basedir, start_frame, end_frame,
     if evaluation:
         return poses, bds, imgs,
 
+    #read in masks
+    mask_dir = os.path.join(basedir, 'motion_masks')
+    maskfiles = [os.path.join(mask_dir, f) \
+                for f in sorted(os.listdir(mask_dir)) if f.endswith('png')]
+    maskfiles = maskfiles[start_frame:end_frame]
+
+    masks = [cv2.resize(imread(f)/255., (imgs.shape[1], imgs.shape[0]),
+                        interpolation=cv2.INTER_NEAREST) for f in maskfiles]
+    masks = np.stack(masks, -1)
+    masks = np.float32(masks > 1e-3)
+
     #read in disparity
     disp_dir = os.path.join(basedir, 'disp_0')
 
     dispfiles = [os.path.join(disp_dir, f) \
                 for f in sorted(os.listdir(disp_dir)) if f.endswith('npy')]
+
+    # sf estimator doesn't include estimates for first few frames, so we need to offset start/end index by the number it skips
+    num_missing = int(dispfiles[0][-9:-4])
+    start_frame -= num_missing
+    end_frame -= num_missing
+
     dispfiles = dispfiles[start_frame:end_frame]
 
     disp = [cv2.resize(np.load(f),
@@ -110,16 +127,6 @@ def _load_data(basedir, start_frame, end_frame,
                     interpolation=cv2.INTER_NEAREST) for f in sf_bw_files]
     sf_bw = np.stack(sf_bw, -1) #cast to shape [w,h,3,num_frames]
 
-    mask_dir = os.path.join(basedir, 'motion_masks')
-    maskfiles = [os.path.join(mask_dir, f) \
-                for f in sorted(os.listdir(mask_dir)) if f.endswith('png')]
-    maskfiles = maskfiles[start_frame:end_frame]
-
-    masks = [cv2.resize(imread(f)/255., (imgs.shape[1], imgs.shape[0]), 
-                        interpolation=cv2.INTER_NEAREST) for f in maskfiles]
-    masks = np.stack(masks, -1)  
-    masks = np.float32(masks > 1e-3)
-    
 
     motion_coords = []
     for i in range(masks.shape[-1]):
@@ -132,6 +139,11 @@ def _load_data(basedir, start_frame, end_frame,
     print("disp.shape:", disp.shape)
     print("sf_fw.shape:", sf_fw.shape)
     print("sf_bw.shape:", sf_fw.shape)
+    print("loaded images:", imgfiles)
+    print("loaded disps:", dispfiles)
+    print("loaded maskfiles:", maskfiles)
+    print("loaded sf fwd", sf_fw_files)
+    print("loaded sf bwd", sf_bw_files)
 
     assert(imgs.shape[0] == disp.shape[0])
     assert(imgs.shape[0] == sf_fw.shape[0])
