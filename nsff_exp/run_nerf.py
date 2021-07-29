@@ -460,7 +460,7 @@ def train():
         #sf loss
         sf_loss = args.w_sf * compute_sf_loss(target_sf_fw, target_sf_bw,
                                               ret['sf_map_ref2post'], ret['sf_map_ref2prev'], pose,
-                                              ret['weights_ref_dy'], ret['raw_pts_ref'], H, W, focal)
+                                              ret['weights_ref_mix'], ret['raw_pts_ref'], H, W, focal)
 
         if chain_5frames:
 

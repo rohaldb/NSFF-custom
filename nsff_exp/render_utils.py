@@ -945,7 +945,7 @@ def raw2outputs_blending(raw_dy,
     rgb_map_dy = torch.sum(weights_dynamic[..., None] * torch.sigmoid(raw_dy[..., :3]), -2) 
 
     return rgb_map, depth_map, sf_ref2prev_map, sf_ref2post_map, \
-           rgb_map_dy, depth_map_dynamic, weights_dynamic
+           rgb_map_dy, depth_map_dynamic, weights_dynamic, weights_mix
 
 
 def raw2outputs_warp(raw_p, 
@@ -1133,7 +1133,7 @@ def render_rays(img_idx,
     # raw_blend_w_ref = raw_ref[:, :, 12]
 
     rgb_map_ref, depth_map_ref, sf_map_ref2prev, sf_map_ref2post, \
-    rgb_map_ref_dy, depth_map_ref_dy, weights_ref_dy = raw2outputs_blending(raw_rgba_ref, raw_rgba_rigid,
+    rgb_map_ref_dy, depth_map_ref_dy, weights_ref_dy, weights_ref_mix = raw2outputs_blending(raw_rgba_ref, raw_rgba_rigid,
                                                                             raw_sf_ref2prev,
                                                                             raw_sf_ref2post,
                                                                             raw_blend_w,
@@ -1145,7 +1145,7 @@ def render_rays(img_idx,
             'sf_map_ref2prev': sf_map_ref2prev, 'sf_map_ref2post': sf_map_ref2post,
             'rgb_map_rig':rgb_map_rig, 'depth_map_rig':depth_map_rig, 
             'rgb_map_ref_dy':rgb_map_ref_dy, 'weights_ref_dy':weights_ref_dy, 
-            'depth_map_ref_dy':depth_map_ref_dy}
+            'depth_map_ref_dy':depth_map_ref_dy, 'weights_ref_mix':weights_ref_mix }
 
     # ret['raw_pts_ref'] = pts_ref[:, :, :3]
     # ret['raw_sf_ref2prev'] = raw_sf_ref2prev
