@@ -389,6 +389,9 @@ def normalize_depth(depth):
     # depth_sm = depth - torch.min(depth)
     return torch.clamp(depth/percentile(depth, 97), 0., 1.)
 
+def normalize_prob_map(map):
+    return (1-0) / (map.max() - map.min()) * (map - map.max()) + 1
+
 
 def percentile(t, q):
     """

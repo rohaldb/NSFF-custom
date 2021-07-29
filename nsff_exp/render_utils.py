@@ -703,11 +703,15 @@ def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, foc
 
     images = {
         "depth": depth,
-        "ref": ret['rgb_map_ref'],
-        "ref_from_prev": ret['rgb_map_prev_dy'],
-        "ref_from_post": ret['rgb_map_post_dy'],
-        "prob_prev": ret['prob_map_post'].unsqueeze(-1),
-        "prob_post": ret['prob_map_post'].unsqueeze(-1),
+        "rgb": torch.clamp(ret['rgb_map_ref'], 0., 1.),
+        "rgb_rig": torch.clamp(ret['rgb_map_rig'], 0., 1.),
+        "rgb_dy": torch.clamp(ret['rgb_map_ref_dy'], 0., 1.),
+        "depth_dy": normalize_depth(ret['depth_map_ref_dy']).unsqueeze(-1).repeat(1, 1, 3),
+        "depth_rig": normalize_depth(ret['depth_map_rig']).unsqueeze(-1).repeat(1, 1, 3),
+        "ref_from_prev": torch.clamp(ret['rgb_map_prev_dy'], 0., 1.),
+        "ref_from_post": torch.clamp(ret['rgb_map_post_dy'], 0., 1.),
+        "prob_prev": normalize_prob_map(ret['prob_map_post']).unsqueeze(-1),
+        "prob_post": normalize_prob_map(ret['prob_map_post']).unsqueeze(-1),
         "opt_flow_fwd": render_flow_fwd_rgb,
         "opt_flow_bwd": render_flow_bwd_rgb,
         "sf_fwd": torch.tensor(compute_color_sceneflow(ret['sf_map_ref2post'])).cpu(),
@@ -716,9 +720,6 @@ def render_single_frame(target_idx, img_idx_embed, chain_bwd, num_img, H, W, foc
 
     for name, image in images.items():
         rgb8 = to8b(image.numpy())
-
-        start_y = (rgb8.shape[1] - 512) // 2
-        rgb8 = rgb8[:, start_y:start_y + 512, :]
 
         save_img_dir = os.path.join(save_dir, 'images')
         os.makedirs(save_img_dir, exist_ok=True)
