@@ -625,6 +625,9 @@ def train():
 
                 write_video_to_tensorboard(video_path, "bullet-time", i, writer)
 
+                #hack to make sure the program doesn't terminate before the videos are written
+                time.sleep(5)
+
             torch.cuda.empty_cache()
 
         global_step += 1
