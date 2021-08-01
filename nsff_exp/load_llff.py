@@ -86,15 +86,10 @@ def _load_data(basedir, start_frame, end_frame,
     masks = np.float32(masks > 1e-3)
 
     #read in disparity
-    disp_dir = os.path.join(basedir, 'disp_0')
+    disp_dir = os.path.join(basedir, 'disp')
 
     dispfiles = [os.path.join(disp_dir, f) \
                 for f in sorted(os.listdir(disp_dir)) if f.endswith('npy')]
-
-    # sf estimator doesn't include estimates for first few frames, so we need to offset start/end index by the number it skips
-    num_missing = int(dispfiles[0][-9:-4])
-    start_frame -= num_missing
-    end_frame -= num_missing
 
     dispfiles = dispfiles[start_frame:end_frame]
 
@@ -108,6 +103,12 @@ def _load_data(basedir, start_frame, end_frame,
 
     sf_fw_files = [os.path.join(sf_fw_dir, f) \
                 for f in sorted(os.listdir(sf_fw_dir)) if f.endswith('npy')]
+
+    # sf estimator doesn't include estimates for first few frames, so we need to offset start/end index by the number it skips
+    num_missing = int(sf_fw_files[0][-9:-4])
+    start_frame -= num_missing
+    end_frame -= num_missing
+
     sf_fw_files = sf_fw_files[start_frame:end_frame]
 
     sf_fw = [cv2.resize(np.load(f),
