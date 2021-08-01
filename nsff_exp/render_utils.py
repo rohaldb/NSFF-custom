@@ -923,16 +923,7 @@ def raw2outputs_blending(raw_dy,
 
     # union map 
     rgb_map = torch.sum(weights_dy[..., None] * rgb_dy + \
-                        weights_rig[..., None] * rgb_rigid, -2) 
-
-    #scene flow
-    #assume sf of static model is 0
-    sf_ref2prev_rig = torch.zeros_like(sf_ref2prev_dy)
-    sf_ref2post_rig = torch.zeros_like(sf_ref2post_dy)
-    sf_ref2prev_map = torch.sum(weights_dy[..., None] * sf_ref2prev_dy +
-                                weights_rig[..., None] * sf_ref2prev_rig, -2)
-    sf_ref2post_map = torch.sum(weights_dy[..., None] * sf_ref2post_dy +
-                                weights_rig[..., None] * sf_ref2post_rig, -2)
+                        weights_rig[..., None] * rgb_rigid, -2)
 
     weights_mix = weights_dy + weights_rig
     depth_map = torch.sum(weights_mix * z_vals, -1)
@@ -943,6 +934,10 @@ def raw2outputs_blending(raw_dy,
                                                                         1.-alpha_dynamic + 1e-10], -1), -1)[:, :-1]
     depth_map_dynamic = torch.sum(weights_dynamic * z_vals, -1)
     rgb_map_dy = torch.sum(weights_dynamic[..., None] * torch.sigmoid(raw_dy[..., :3]), -2) 
+
+    # sf
+    sf_ref2prev_map = torch.sum(weights_dynamic[..., None] * sf_ref2prev_dy, -2)
+    sf_ref2post_map = torch.sum(weights_dynamic[..., None] * sf_ref2post_dy, -2)
 
     return rgb_map, depth_map, sf_ref2prev_map, sf_ref2post_map, \
            rgb_map_dy, depth_map_dynamic, weights_dynamic, weights_mix
